@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "Wimpy",
+    "slug": "wimpy-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#241713"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.wimpy.app"
+    },
+    "android": {
+      "package": "com.wimpy.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#241713"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
