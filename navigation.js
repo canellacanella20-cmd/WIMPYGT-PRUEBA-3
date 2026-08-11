@@ -7,6 +7,7 @@ import { colors } from './theme';
 import VenderScreen from './VenderScreen';
 import MenuScreen from './MenuScreen';
 import InventarioScreen from './InventarioScreen';
+import CajaScreen from './CajaScreen';
 import AjustesScreen from './AjustesScreen';
 import ComingSoonScreen from './ComingSoonScreen';
 
@@ -35,12 +36,7 @@ export default function AppTabs() {
         <>
           <Tab.Screen name="Menú" component={MenuScreen} options={{ title: 'Menú', tabBarIcon: icon('📋') }} />
           <Tab.Screen name="Inventario" component={InventarioScreen} options={{ title: 'Inventario', tabBarIcon: icon('📦') }} />
-          <Tab.Screen
-            name="Caja"
-            component={ComingSoonScreen}
-            initialParams={{ nombre: 'Cierre de caja e Ingresos/Egresos' }}
-            options={{ title: 'Caja', tabBarIcon: icon('💰') }}
-          />
+          <Tab.Screen name="Caja" component={CajaScreen} options={{ title: 'Caja', tabBarIcon: icon('💰') }} />
           <Tab.Screen
             name="Reportes"
             component={ComingSoonScreen}

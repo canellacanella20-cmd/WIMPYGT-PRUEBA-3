@@ -2,10 +2,55 @@ import React, { useMemo, useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert,
 } from 'react-native';
+import * as Print from 'expo-print';
 import { useApp } from './AppContext';
 import { cobrarVenta, listenVentasEnRango } from './firestore';
 import { money, round2, METODOS, TIPOS_PEDIDO } from './format';
 import { colors, radius } from './theme';
+
+function ticketHtml(venta, config) {
+  const fecha = new Date(venta.fechaISO);
+  const fechaTxt = fecha.toLocaleDateString('es-GT', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const horaTxt = fecha.toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' });
+  const metodo = METODOS[venta.metodoPago] || METODOS.efectivo;
+  const tipo = TIPOS_PEDIDO[venta.tipoPedido] || TIPOS_PEDIDO.local;
+  const filas = venta.items.map((it) => `
+    <div style="display:flex;justify-content:space-between;font-size:12.5px;margin:4px 0;">
+      <span>${it.cantidad}× ${it.nombre}</span>
+      <span>${money(it.precio * it.cantidad)}</span>
+    </div>`).join('');
+  return `
+    <html><body style="font-family:monospace; width:280px; margin:0 auto; color:#000; padding:16px;">
+      <div style="text-align:center; font-size:20px; font-weight:800; margin-bottom:2px; text-transform:uppercase;">${config.nombre || 'WIMPY'}</div>
+      ${config.ticketDireccion ? `<div style="text-align:center;font-size:11px;">${config.ticketDireccion}</div>` : ''}
+      <div style="text-align:center;font-size:11px;margin-bottom:10px;">Ticket de venta</div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:6px;">
+        <span>#${(venta.id || '').slice(-6)}</span><span>${fechaTxt} ${horaTxt}</span>
+      </div>
+      <div style="border-top:1px dashed #000;margin:8px 0;"></div>
+      ${filas}
+      <div style="border-top:1px dashed #000;margin:8px 0;"></div>
+      <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;margin-top:8px;">
+        <span>Total</span><span>${money(venta.total)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-top:6px;">
+        <span>Forma de pago</span><span>${metodo.icon} ${metodo.label}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12.5px;">
+        <span>Pedido</span><span>${tipo.icon} ${tipo.label}</span>
+      </div>
+      ${venta.nota ? `<div style="font-size:12.5px;margin-top:4px;">📍 ${venta.nota}</div>` : ''}
+      <div style="text-align:center;font-size:11px;margin-top:16px;">${config.ticketMensaje || '¡Gracias por su compra!'}</div>
+    </body></html>`;
+}
+
+async function imprimirTicket(venta, config) {
+  try {
+    await Print.printAsync({ html: ticketHtml(venta, config) });
+  } catch (e) {
+    Alert.alert('No se pudo imprimir', 'Intenta de nuevo.');
+  }
+}
 
 export default function VenderScreen() {
   const { menu, insumos, config } = useApp();
@@ -15,6 +60,7 @@ export default function VenderScreen() {
   const [nota, setNota] = useState('');
   const [cobrando, setCobrando] = useState(false);
   const [ventasHoy, setVentasHoy] = useState([]);
+  const [lastVenta, setLastVenta] = useState(null);
 
   useEffect(() => {
     const now = new Date();
@@ -78,14 +124,23 @@ export default function VenderScreen() {
       nota: tipoPedido === 'domicilio' ? nota.trim() : '',
     };
     try {
-      const { stockBajo } = await cobrarVenta(nuevaVenta, menu);
+      const { id, stockBajo } = await cobrarVenta(nuevaVenta, menu);
+      const ventaConId = { ...nuevaVenta, id };
       setTicket([]);
       setNota('');
-      Alert.alert('Venta cobrada', `Total: ${money(nuevaVenta.total)}`);
+      setLastVenta(ventaConId);
       if (stockBajo.length) {
         const unicos = [...new Set(stockBajo)];
         setTimeout(() => Alert.alert('Stock bajo', 'Atención: stock bajo o agotado de: ' + unicos.join(', ')), 300);
       }
+      Alert.alert(
+        'Venta cobrada',
+        `Total: ${money(nuevaVenta.total)}`,
+        [
+          { text: 'Cerrar', style: 'cancel' },
+          { text: '🖨 Imprimir ticket', onPress: () => imprimirTicket(ventaConId, config) },
+        ]
+      );
     } catch (e) {
       Alert.alert('Error', 'No se pudo guardar la venta. Intenta de nuevo.');
     } finally {
@@ -208,18 +263,21 @@ export default function VenderScreen() {
           <Text style={{ color: colors.inkSoft, fontSize: 13 }}>Aún no registras ventas hoy.</Text>
         ) : (
           ventasHoy.slice(0, 8).map((v) => (
-            <View key={v.id} style={styles.miniTicket}>
+            <TouchableOpacity key={v.id} style={styles.miniTicket} onPress={() => imprimirTicket(v, config)}>
               <View style={styles.miniTicketTop}>
                 <Text style={styles.miniTicketMeta}>
                   {new Date(v.fechaISO).toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' })}
                 </Text>
-                <Text style={styles.miniTicketMeta}>{METODOS[v.metodoPago]?.icon}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={styles.miniTicketMeta}>{METODOS[v.metodoPago]?.icon}</Text>
+                  <Text style={styles.printIcon}>🖨</Text>
+                </View>
               </View>
               <Text style={styles.miniTicketItems} numberOfLines={2}>
                 {v.items.map((i) => `${i.cantidad}× ${i.nombre}`).join(', ')}
               </Text>
               <Text style={styles.miniTicketTotal}>{money(v.total)}</Text>
-            </View>
+            </TouchableOpacity>
           ))
         )}
       </View>
@@ -280,4 +338,5 @@ const styles = StyleSheet.create({
   miniTicketMeta: { fontSize: 11, color: colors.inkSoft },
   miniTicketItems: { fontSize: 12.5, color: colors.ink, marginBottom: 4 },
   miniTicketTotal: { textAlign: 'right', fontWeight: '700', color: colors.teal },
+  printIcon: { fontSize: 13 },
 });
