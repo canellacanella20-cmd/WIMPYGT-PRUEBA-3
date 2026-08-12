@@ -9,15 +9,22 @@ export default function AjustesScreen() {
   const [nombre, setNombre] = useState(config.nombre || '');
   const [mensaje, setMensaje] = useState(config.ticketMensaje || '');
   const [direccion, setDireccion] = useState(config.ticketDireccion || '');
+  const [telefono, setTelefono] = useState(config.ticketTelefono || '');
 
   useEffect(() => {
     setNombre(config.nombre || '');
     setMensaje(config.ticketMensaje || '');
     setDireccion(config.ticketDireccion || '');
-  }, [config.nombre, config.ticketMensaje, config.ticketDireccion]);
+    setTelefono(config.ticketTelefono || '');
+  }, [config.nombre, config.ticketMensaje, config.ticketDireccion, config.ticketTelefono]);
 
   async function guardar() {
-    await guardarConfig({ nombre: nombre.trim() || 'WIMPY', ticketMensaje: mensaje, ticketDireccion: direccion });
+    await guardarConfig({
+      nombre: nombre.trim() || 'WIMPY',
+      ticketMensaje: mensaje,
+      ticketDireccion: direccion,
+      ticketTelefono: telefono,
+    });
     Alert.alert('Guardado', 'Los cambios se aplicarán a todos los teléfonos conectados.');
   }
 
@@ -29,10 +36,13 @@ export default function AjustesScreen() {
       <TextInput style={styles.input} value={nombre} onChangeText={setNombre} />
 
       <Text style={styles.label}>Dirección (aparece en el ticket)</Text>
-      <TextInput style={styles.input} value={direccion} onChangeText={setDireccion} />
+      <TextInput style={styles.input} value={direccion} onChangeText={setDireccion} placeholder="Av. Siempre Viva 123, Zona 10" />
 
-      <Text style={styles.label}>Mensaje del ticket</Text>
-      <TextInput style={styles.input} value={mensaje} onChangeText={setMensaje} />
+      <Text style={styles.label}>Teléfono (aparece en el ticket)</Text>
+      <TextInput style={styles.input} value={telefono} onChangeText={setTelefono} placeholder="+502 1234 5678" keyboardType="phone-pad" />
+
+      <Text style={styles.label}>Mensaje de bienvenida (arriba del ticket)</Text>
+      <TextInput style={styles.input} value={mensaje} onChangeText={setMensaje} placeholder="¡Gracias por su visita!" />
 
       <TouchableOpacity style={styles.btnPrimary} onPress={guardar}>
         <Text style={styles.btnPrimaryText}>Guardar cambios</Text>

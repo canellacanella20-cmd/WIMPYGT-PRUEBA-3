@@ -6,54 +6,113 @@ import * as Print from 'expo-print';
 import { useApp } from './AppContext';
 import { cobrarVenta, listenVentasEnRango } from './firestore';
 import { money, round2, METODOS, TIPOS_PEDIDO } from './format';
-import { colors, radius } from './theme';
-
-function ticketHtml(venta, config) {
+import { colors, radius } from './theme';function ticketHtml(venta, config) {
   const fecha = new Date(venta.fechaISO);
   const fechaTxt = fecha.toLocaleDateString('es-GT', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const horaTxt = fecha.toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' });
   const metodo = METODOS[venta.metodoPago] || METODOS.efectivo;
   const tipo = TIPOS_PEDIDO[venta.tipoPedido] || TIPOS_PEDIDO.local;
+  const nombreNegocio = (config.nombre || 'WIMPY').toUpperCase();
+  const mensajeBienvenida = config.ticketMensaje || '¡Gracias por su visita!';
+
   const filas = venta.items.map((it) => `
-    <div style="display:flex;justify-content:space-between;font-size:12.5px;margin:4px 0;">
-      <span>${it.cantidad}× ${it.nombre}</span>
-      <span>${money(it.precio * it.cantidad)}</span>
-    </div>`).join('');
+    <tr>
+      <td style="padding:3px 0;font-size:10.5px;vertical-align:top;">${it.cantidad}</td>
+      <td style="padding:3px 0;font-size:10.5px;vertical-align:top;">${it.nombre}</td>
+      <td style="padding:3px 0;font-size:10.5px;text-align:right;vertical-align:top;">${money(it.precio)}</td>
+      <td style="padding:3px 0;font-size:10.5px;text-align:right;vertical-align:top;">${money(it.precio * it.cantidad)}</td>
+    </tr>`).join('');
+
   return `
-    <html><body style="font-family:monospace; width:280px; margin:0 auto; color:#000; padding:16px;">
-      <div style="text-align:center; font-size:20px; font-weight:800; margin-bottom:2px; text-transform:uppercase;">${config.nombre || 'WIMPY'}</div>
-      ${config.ticketDireccion ? `<div style="text-align:center;font-size:11px;">${config.ticketDireccion}</div>` : ''}
-      <div style="text-align:center;font-size:11px;margin-bottom:10px;">Ticket de venta</div>
-      <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:6px;">
-        <span>#${(venta.id || '').slice(-6)}</span><span>${fechaTxt} ${horaTxt}</span>
+  <html>
+  <head>
+    <style>
+      @page { size: 57mm auto; margin: 0; }
+      * { box-sizing: border-box; }
+      body { width: 54mm; margin: 0 auto; padding: 6px 5px 14px; font-family: Helvetica, Arial, sans-serif; color: #111; }
+      .center { text-align: center; }
+      .dashed { border-top: 1.5px dashed #111; margin: 8px 0; }
+      table { width: 100%; border-collapse: collapse; }
+    </style>
+  </head>
+  <body>
+    <div class="center" style="margin-bottom:6px;">
+      <div style="display:inline-block; background:#111; color:#fff; border-radius:50%/40%; padding:10px 14px; border:2px solid #111;">
+        <div style="font-size:15px; font-weight:800; letter-spacing:0.5px;">${nombreNegocio}</div>
       </div>
-      <div style="border-top:1px dashed #000;margin:8px 0;"></div>
-      ${filas}
-      <div style="border-top:1px dashed #000;margin:8px 0;"></div>
-      <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;margin-top:8px;">
-        <span>Total</span><span>${money(venta.total)}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-top:6px;">
-        <span>Forma de pago</span><span>${metodo.icon} ${metodo.label}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;font-size:12.5px;">
-        <span>Pedido</span><span>${tipo.icon} ${tipo.label}</span>
-      </div>
-      ${venta.nota ? `<div style="font-size:12.5px;margin-top:4px;">📍 ${venta.nota}</div>` : ''}
-      <div style="text-align:center;font-size:11px;margin-top:16px;">${config.ticketMensaje || '¡Gracias por su compra!'}</div>
-    </body></html>`;
+    </div>
+
+    <div class="center" style="font-size:10px; font-weight:700; margin-bottom:6px;">
+      ★ ${mensajeBienvenida.toUpperCase()} ★
+    </div>
+
+    <div class="dashed"></div>
+
+    <div class="center" style="font-size:12px; font-weight:800; margin-bottom:2px;">${nombreNegocio}</div>
+    ${config.ticketDireccion ? `<div class="center" style="font-size:9.5px;">📍 ${config.ticketDireccion}</div>` : ''}
+    ${config.ticketTelefono ? `<div class="center" style="font-size:9.5px; margin-top:2px;">📞 ${config.ticketTelefono}</div>` : ''}
+
+    <div class="dashed"></div>
+
+    <table style="font-size:9.5px;">
+      <tr><td>Fecha:</td><td style="text-align:right;">${fechaTxt}</td></tr>
+      <tr><td>Hora:</td><td style="text-align:right;">${horaTxt}</td></tr>
+      <tr><td>No. de ticket:</td><td style="text-align:right;">${(venta.id || '').slice(-6).toUpperCase()}</td></tr>
+    </table>
+
+    <div class="dashed"></div>
+
+    <table>
+      <thead>
+        <tr style="background:#111; color:#fff;">
+          <td style="padding:3px 0 3px 3px; font-size:9px; font-weight:700;">CANT.</td>
+          <td style="padding:3px 0; font-size:9px; font-weight:700;">DESCRIPCIÓN</td>
+          <td style="padding:3px 0; font-size:9px; font-weight:700; text-align:right;">PRECIO</td>
+          <td style="padding:3px 3px 3px 0; font-size:9px; font-weight:700; text-align:right;">TOTAL</td>
+        </tr>
+      </thead>
+      <tbody>${filas}</tbody>
+    </table>
+
+    <div class="dashed"></div>
+
+    <table style="font-size:10.5px;">
+      <tr><td>Subtotal:</td><td style="text-align:right;">${money(venta.total)}</td></tr>
+      <tr><td>Descuento:</td><td style="text-align:right;">${money(0)}</td></tr>
+    </table>
+    <table style="margin-top:4px;">
+      <tr>
+        <td style="font-size:14px; font-weight:800;">TOTAL:</td>
+        <td style="font-size:14px; font-weight:800; text-align:right;">${money(venta.total)}</td>
+      </tr>
+    </table>
+
+    <table style="font-size:9.5px; margin-top:6px; color:#333;">
+      <tr><td>Forma de pago:</td><td style="text-align:right;">${metodo.icon} ${metodo.label}</td></tr>
+      <tr><td>Pedido:</td><td style="text-align:right;">${tipo.icon} ${tipo.label}</td></tr>
+    </table>
+    ${venta.nota ? `<div style="font-size:9.5px; margin-top:4px;">📍 ${venta.nota}</div>` : ''}
+
+    <div style="border:1.5px dashed #111; border-radius:6px; padding:8px 4px; margin-top:12px; text-align:center;">
+      <div style="font-size:10px; font-weight:800;">¡GRACIAS POR PREFERIRNOS!</div>
+      <div style="font-size:10.5px; font-style:italic; margin-top:2px;">Buen provecho</div>
+    </div>
+
+    <div class="center" style="font-size:9px; margin-top:10px; letter-spacing:0.5px;">— — — VUELVA PRONTO — — —</div>
+  </body>
+  </html>`;
 }
 
 async function imprimirTicket(venta, config) {
   try {
-    await Print.printAsync({ html: ticketHtml(venta, config) });
+    await Print.printAsync({ html: ticketHtml(venta, config), width: 162 });
   } catch (e) {
     Alert.alert('No se pudo imprimir', 'Intenta de nuevo.');
   }
 }
 
 export default function VenderScreen() {
-  const { menu, insumos, config } = useApp();
+  const { menu, insumos, config, setRole } = useApp();
   const [ticket, setTicket] = useState([]); // [{platilloId, nombre, precio, cantidad}]
   const [metodoPago, setMetodoPago] = useState('efectivo');
   const [tipoPedido, setTipoPedido] = useState('local');
@@ -281,6 +340,10 @@ export default function VenderScreen() {
           ))
         )}
       </View>
+
+      <TouchableOpacity style={{ alignItems: 'center', marginTop: 20, marginBottom: 10 }} onPress={() => setRole(null)}>
+        <Text style={{ color: colors.danger, fontWeight: '600', fontSize: 12.5 }}>Cambiar de usuario</Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 }
