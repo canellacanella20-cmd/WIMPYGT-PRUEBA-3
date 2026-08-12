@@ -8,6 +8,7 @@ import VenderScreen from './VenderScreen';
 import MenuScreen from './MenuScreen';
 import InventarioScreen from './InventarioScreen';
 import CajaScreen from './CajaScreen';
+import ReportesScreen from './ReportesScreen';
 import AjustesScreen from './AjustesScreen';
 import ComingSoonScreen from './ComingSoonScreen';
 
@@ -37,12 +38,7 @@ export default function AppTabs() {
           <Tab.Screen name="Menú" component={MenuScreen} options={{ title: 'Menú', tabBarIcon: icon('📋') }} />
           <Tab.Screen name="Inventario" component={InventarioScreen} options={{ title: 'Inventario', tabBarIcon: icon('📦') }} />
           <Tab.Screen name="Caja" component={CajaScreen} options={{ title: 'Caja', tabBarIcon: icon('💰') }} />
-          <Tab.Screen
-            name="Reportes"
-            component={ComingSoonScreen}
-            initialParams={{ nombre: 'Reportes' }}
-            options={{ title: 'Reportes', tabBarIcon: icon('📊') }}
-          />
+          <Tab.Screen name="Reportes" component={ReportesScreen} options={{ title: 'Reportes', tabBarIcon: icon('📊') }} />
           <Tab.Screen name="Ajustes" component={AjustesScreen} options={{ title: 'Ajustes', tabBarIcon: icon('⚙️') }} />
         </>
       )}

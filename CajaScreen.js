@@ -60,7 +60,27 @@ export default function CajaScreen() {
 
   const totalIngresos = movimientos.filter((m) => m.tipo === 'ingreso').reduce((s, m) => s + m.monto, 0);
   const totalEgresos = movimientos.filter((m) => m.tipo === 'egreso').reduce((s, m) => s + m.monto, 0);
-  const efectivoQueDeberiaHaber = round2(porMetodo.efectivo + totalIngresos - totalEgresos);
+
+  // El cierre de caja no debe sumar TODO el rango de nuevo si ya se cerró antes:
+  // buscamos el último cierre dentro de este mismo rango y solo contamos lo
+  // que pasó DESPUÉS de ese cierre.
+  const cierresEnRango = cierres.filter((c) => {
+    const f = new Date(c.fechaRegistro);
+    return f >= start && f <= end;
+  });
+  const ultimoCierre = cierresEnRango.length
+    ? cierresEnRango.reduce((a, b) => (new Date(a.fechaRegistro) > new Date(b.fechaRegistro) ? a : b))
+    : null;
+  const puntoInicio = ultimoCierre ? new Date(ultimoCierre.fechaRegistro) : start;
+
+  const ventasDesdeCierre = ventas.filter((v) => new Date(v.fechaISO) > puntoInicio);
+  const movimientosDesdeCierre = movimientos.filter((m) => new Date(m.fechaISO) > puntoInicio);
+  const efectivoVentasDesdeCierre = ventasDesdeCierre
+    .filter((v) => (v.metodoPago || 'efectivo') === 'efectivo')
+    .reduce((s, v) => s + v.total, 0);
+  const ingresosDesdeCierre = movimientosDesdeCierre.filter((m) => m.tipo === 'ingreso').reduce((s, m) => s + m.monto, 0);
+  const egresosDesdeCierre = movimientosDesdeCierre.filter((m) => m.tipo === 'egreso').reduce((s, m) => s + m.monto, 0);
+  const efectivoQueDeberiaHaber = round2(efectivoVentasDesdeCierre + ingresosDesdeCierre - egresosDesdeCierre);
 
   const contadoNum = Number(efectivoContado);
   const hayContado = efectivoContado !== '' && !isNaN(contadoNum);
@@ -112,13 +132,17 @@ export default function CajaScreen() {
     const cierre = {
       etiqueta: etiquetas[rango] || 'Cierre',
       rango,
-      desde: start.toISOString(),
+      desde: puntoInicio.toISOString(),
       hasta: end.toISOString(),
-      total: round2(totalVentas),
-      numVentas: ventas.length,
-      porMetodo,
-      totalIngresos: round2(totalIngresos),
-      totalEgresos: round2(totalEgresos),
+      total: round2(ventasDesdeCierre.reduce((s, v) => s + v.total, 0)),
+      numVentas: ventasDesdeCierre.length,
+      porMetodo: {
+        efectivo: round2(efectivoVentasDesdeCierre),
+        tarjeta: round2(ventasDesdeCierre.filter((v) => v.metodoPago === 'tarjeta').reduce((s, v) => s + v.total, 0)),
+        transferencia: round2(ventasDesdeCierre.filter((v) => v.metodoPago === 'transferencia').reduce((s, v) => s + v.total, 0)),
+      },
+      totalIngresos: round2(ingresosDesdeCierre),
+      totalEgresos: round2(egresosDesdeCierre),
       efectivoQueDeberiaHaber,
       efectivoContado: contadoNum,
       diferencia,
@@ -209,6 +233,12 @@ export default function CajaScreen() {
       {/* Cierre de caja */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Cierre de caja</Text>
+        {ultimoCierre && (
+          <Text style={styles.hint}>
+            Contando desde tu último cierre de hoy, a las{' '}
+            {new Date(ultimoCierre.fechaRegistro).toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' })}.
+          </Text>
+        )}
         <View style={styles.formRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.label}>Efectivo que debería haber</Text>
