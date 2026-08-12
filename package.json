@@ -27,5 +27,11 @@
   "devDependencies": {
     "@babel/core": "^7.24.0"
   },
+  "overrides": {
+    "protobufjs": "^7.4.0",
+    "tar": "^7.4.3",
+    "glob": "^11.0.0",
+    "rimraf": "^6.0.1"
+  },
   "private": true
 }
