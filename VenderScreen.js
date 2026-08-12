@@ -1,12 +1,13 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, Image,
 } from 'react-native';
 import * as Print from 'expo-print';
 import { useApp } from './AppContext';
 import { cobrarVenta, listenVentasEnRango } from './firestore';
 import { money, round2, METODOS, TIPOS_PEDIDO } from './format';
-import { colors, radius } from './theme';function ticketHtml(venta, config) {
+import { colors, radius } from './theme';
+import { WIMPY_LOGO_BASE64 } from './logo';function ticketHtml(venta, config) {
   const fecha = new Date(venta.fechaISO);
   const fechaTxt = fecha.toLocaleDateString('es-GT', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const horaTxt = fecha.toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' });
@@ -37,9 +38,7 @@ import { colors, radius } from './theme';function ticketHtml(venta, config) {
   </head>
   <body>
     <div class="center" style="margin-bottom:6px;">
-      <div style="display:inline-block; background:#111; color:#fff; border-radius:50%/40%; padding:10px 14px; border:2px solid #111;">
-        <div style="font-size:15px; font-weight:800; letter-spacing:0.5px;">${nombreNegocio}</div>
-      </div>
+      <img src="${WIMPY_LOGO_BASE64}" style="width:120px; height:auto;" />
     </div>
 
     <div class="center" style="font-size:10px; font-weight:700; margin-bottom:6px;">
@@ -120,6 +119,7 @@ export default function VenderScreen() {
   const [cobrando, setCobrando] = useState(false);
   const [ventasHoy, setVentasHoy] = useState([]);
   const [lastVenta, setLastVenta] = useState(null);
+  const [modo, setModo] = useState('menu'); // 'menu' | 'carrito'
 
   useEffect(() => {
     const now = new Date();
@@ -207,34 +207,100 @@ export default function VenderScreen() {
     }
   }
 
+  const totalItems = ticket.reduce((s, i) => s + i.cantidad, 0);
+
+  // ─────────────────────────── VISTA: MENÚ (elegir platillos) ───────────────────────────
+  if (modo === 'menu') {
+    return (
+      <View style={styles.screen}>
+        <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: totalItems > 0 ? 90 : 20 }}>
+          <Text style={styles.title}>VENDER</Text>
+          <Text style={styles.subtitle}>Toca los platillos para agregarlos al carrito.</Text>
+
+          {menu.length === 0 ? (
+            <View style={styles.empty}>
+              <Text style={{ color: colors.inkSoft }}>
+                Todavía no tienes platillos registrados. Agrégalos en la pestaña Menú.
+              </Text>
+            </View>
+          ) : (
+            Object.keys(categorias).map((cat) => (
+              <View key={cat} style={{ marginBottom: 4 }}>
+                <Text style={styles.categoryLabel}>{cat.toUpperCase()}</Text>
+                <View style={styles.dishGrid}>
+                  {categorias[cat].map((p) => (
+                    <TouchableOpacity key={p.id} style={styles.dishBtn} onPress={() => addItem(p)}>
+                      {p.imagenUrl ? (
+                        <Image source={{ uri: p.imagenUrl }} style={styles.dishImage} />
+                      ) : (
+                        <View style={[styles.dishImage, styles.dishImagePlaceholder]}>
+                          <Text style={{ fontSize: 22 }}>🍽️</Text>
+                        </View>
+                      )}
+                      <Text style={styles.dishName} numberOfLines={2}>{p.nombre}</Text>
+                      <Text style={styles.dishPrice}>{money(p.precio)}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            ))
+          )}
+
+          {/* Resumen de hoy */}
+          <View style={styles.todayCard}>
+            <Text style={styles.todayTitle}>Ventas de hoy · {money(totalHoy)}</Text>
+            <View style={styles.cajaChica}>
+              <Text style={styles.cajaChicaText}>💵 Efectivo hoy: {money(porMetodoHoy.efectivo)}</Text>
+              <Text style={styles.cajaChicaSub}>💳 Tarjeta: {money(porMetodoHoy.tarjeta)}   🏦 Depósito: {money(porMetodoHoy.transferencia)}</Text>
+            </View>
+            {ventasHoy.length === 0 ? (
+              <Text style={{ color: colors.inkSoft, fontSize: 13 }}>Aún no registras ventas hoy.</Text>
+            ) : (
+              ventasHoy.slice(0, 8).map((v) => (
+                <TouchableOpacity key={v.id} style={styles.miniTicket} onPress={() => imprimirTicket(v, config)}>
+                  <View style={styles.miniTicketTop}>
+                    <Text style={styles.miniTicketMeta}>
+                      {new Date(v.fechaISO).toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={styles.miniTicketMeta}>{METODOS[v.metodoPago]?.icon}</Text>
+                      <Text style={styles.printIcon}>🖨</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.miniTicketItems} numberOfLines={2}>
+                    {v.items.map((i) => `${i.cantidad}× ${i.nombre}`).join(', ')}
+                  </Text>
+                  <Text style={styles.miniTicketTotal}>{money(v.total)}</Text>
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+
+          <TouchableOpacity style={{ alignItems: 'center', marginTop: 20, marginBottom: 10 }} onPress={() => setRole(null)}>
+            <Text style={{ color: colors.danger, fontWeight: '600', fontSize: 12.5 }}>Cambiar de usuario</Text>
+          </TouchableOpacity>
+        </ScrollView>
+
+        {totalItems > 0 && (
+          <TouchableOpacity style={styles.floatingCartBar} onPress={() => setModo('carrito')}>
+            <Text style={styles.floatingCartText}>🛒 Ir al carrito ({totalItems})</Text>
+            <Text style={styles.floatingCartTotal}>{money(total)}</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  }
+
+  // ─────────────────────────── VISTA: CARRITO (cobrar) ───────────────────────────
   return (
     <ScrollView style={styles.screen} contentContainerStyle={{ padding: 14 }}>
-      <Text style={styles.title}>VENDER</Text>
-      <Text style={styles.subtitle}>Toca los platillos para armar la comanda y cóbrala cuando esté lista.</Text>
+      <TouchableOpacity onPress={() => setModo('menu')} style={styles.backRow}>
+        <Text style={styles.backText}>‹ Volver al menú</Text>
+      </TouchableOpacity>
 
-      {menu.length === 0 ? (
-        <View style={styles.empty}>
-          <Text style={{ color: colors.inkSoft }}>
-            Todavía no tienes platillos registrados. Agrégalos en la pestaña Menú.
-          </Text>
-        </View>
-      ) : (
-        Object.keys(categorias).map((cat) => (
-          <View key={cat} style={{ marginBottom: 4 }}>
-            <Text style={styles.categoryLabel}>{cat.toUpperCase()}</Text>
-            <View style={styles.dishGrid}>
-              {categorias[cat].map((p) => (
-                <TouchableOpacity key={p.id} style={styles.dishBtn} onPress={() => addItem(p)}>
-                  <Text style={styles.dishName} numberOfLines={2}>{p.nombre}</Text>
-                  <Text style={styles.dishPrice}>{money(p.precio)}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        ))
-      )}
+      <Text style={styles.title}>CARRITO</Text>
+      <Text style={styles.subtitle}>Revisa la comanda, elige la forma de pago y cobra.</Text>
 
-      {/* Ticket */}
       <View style={styles.ticketCard}>
         <Text style={styles.ticketTitle}>Comanda actual</Text>
         {ticket.length === 0 ? (
@@ -303,47 +369,11 @@ export default function VenderScreen() {
         <TouchableOpacity
           style={[styles.chargeBtn, (ticket.length === 0 || cobrando) && styles.chargeBtnDisabled]}
           disabled={ticket.length === 0 || cobrando}
-          onPress={handleCobrar}
+          onPress={async () => { await handleCobrar(); setModo('menu'); }}
         >
           <Text style={styles.chargeBtnText}>{cobrando ? 'Guardando…' : 'COBRAR VENTA'}</Text>
         </TouchableOpacity>
       </View>
-
-      {/* Resumen de hoy */}
-      <View style={styles.todayCard}>
-        <Text style={styles.todayTitle}>Ventas de hoy · {money(totalHoy)}</Text>
-        <View style={styles.cajaChica}>
-          <Text style={styles.cajaChicaText}>
-            💵 Efectivo hoy: {money(porMetodoHoy.efectivo)}
-          </Text>
-          <Text style={styles.cajaChicaSub}>💳 Tarjeta: {money(porMetodoHoy.tarjeta)}   🏦 Depósito: {money(porMetodoHoy.transferencia)}</Text>
-        </View>
-        {ventasHoy.length === 0 ? (
-          <Text style={{ color: colors.inkSoft, fontSize: 13 }}>Aún no registras ventas hoy.</Text>
-        ) : (
-          ventasHoy.slice(0, 8).map((v) => (
-            <TouchableOpacity key={v.id} style={styles.miniTicket} onPress={() => imprimirTicket(v, config)}>
-              <View style={styles.miniTicketTop}>
-                <Text style={styles.miniTicketMeta}>
-                  {new Date(v.fechaISO).toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' })}
-                </Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={styles.miniTicketMeta}>{METODOS[v.metodoPago]?.icon}</Text>
-                  <Text style={styles.printIcon}>🖨</Text>
-                </View>
-              </View>
-              <Text style={styles.miniTicketItems} numberOfLines={2}>
-                {v.items.map((i) => `${i.cantidad}× ${i.nombre}`).join(', ')}
-              </Text>
-              <Text style={styles.miniTicketTotal}>{money(v.total)}</Text>
-            </TouchableOpacity>
-          ))
-        )}
-      </View>
-
-      <TouchableOpacity style={{ alignItems: 'center', marginTop: 20, marginBottom: 10 }} onPress={() => setRole(null)}>
-        <Text style={{ color: colors.danger, fontWeight: '600', fontSize: 12.5 }}>Cambiar de usuario</Text>
-      </TouchableOpacity>
     </ScrollView>
   );
 }
@@ -361,6 +391,19 @@ const styles = StyleSheet.create({
   },
   dishName: { fontWeight: '600', fontSize: 12.5, color: colors.ink, marginBottom: 4 },
   dishPrice: { fontSize: 12.5, color: colors.amberDark, fontWeight: '600' },
+  dishImage: { width: '100%', height: 64, borderRadius: 6, marginBottom: 6, backgroundColor: colors.line },
+  dishImagePlaceholder: { alignItems: 'center', justifyContent: 'center' },
+
+  floatingCartBar: {
+    position: 'absolute', left: 14, right: 14, bottom: 14, backgroundColor: colors.ink,
+    borderRadius: 14, paddingVertical: 14, paddingHorizontal: 18, flexDirection: 'row',
+    justifyContent: 'space-between', alignItems: 'center', shadowColor: '#000',
+    shadowOpacity: 0.25, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6,
+  },
+  floatingCartText: { color: '#fff', fontWeight: '700', fontSize: 14.5 },
+  floatingCartTotal: { color: colors.accent, fontWeight: '800', fontSize: 15.5 },
+  backRow: { marginBottom: 4 },
+  backText: { color: colors.secondaryDark, fontWeight: '700', fontSize: 13.5 },
 
   ticketCard: { backgroundColor: colors.paperRaised, borderWidth: 1, borderColor: colors.line, borderRadius: radius, padding: 14, marginTop: 20 },
   ticketTitle: { fontWeight: '700', fontSize: 15, color: colors.ink, marginBottom: 6 },
@@ -387,7 +430,7 @@ const styles = StyleSheet.create({
 
   input: { borderWidth: 1, borderColor: colors.lineStrong, borderRadius: 8, padding: 9, marginTop: 8, fontSize: 13, color: colors.ink },
 
-  chargeBtn: { backgroundColor: colors.rust, borderRadius: 8, padding: 13, marginTop: 14, alignItems: 'center' },
+  chargeBtn: { backgroundColor: colors.secondary, borderRadius: 8, padding: 13, marginTop: 14, alignItems: 'center' },
   chargeBtnDisabled: { backgroundColor: colors.lineStrong },
   chargeBtnText: { color: '#fff', fontWeight: '700', fontSize: 14, letterSpacing: 0.5 },
 

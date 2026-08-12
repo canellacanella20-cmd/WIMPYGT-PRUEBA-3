@@ -1,8 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system';
 import { listenVentasEnRango } from './firestore';
+import { useApp } from './AppContext';
 import { money } from './format';
 import { colors, radius } from './theme';
+import { WIMPY_LOGO_BASE64 } from './logo';
 
 const RANGOS = { hoy: 'Hoy', semana: 'Semana', mes: 'Mes' };
 
@@ -22,6 +27,7 @@ function rangoFechas(rango) {
 }
 
 export default function ReportesScreen() {
+  const { config } = useApp();
   const [rango, setRango] = useState('hoy');
   const [ventas, setVentas] = useState([]);
   const { start, end } = useMemo(() => rangoFechas(rango), [rango]);
@@ -75,6 +81,18 @@ export default function ReportesScreen() {
             <Text style={[styles.rangoText, rango === key && styles.rangoTextActive]}>{label}</Text>
           </TouchableOpacity>
         ))}
+      </View>
+
+      <View style={styles.exportRow}>
+        <TouchableOpacity
+          style={styles.exportBtn}
+          onPress={() => exportarPDF({ ventas, total, porMetodo, porTipo, topProductos }, rango, config)}
+        >
+          <Text style={styles.exportBtnText}>📄 Exportar PDF</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.exportBtn} onPress={() => exportarExcel(ventas, rango)}>
+          <Text style={styles.exportBtnText}>📊 Exportar Excel</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Totales grandes */}
@@ -157,19 +175,95 @@ export default function ReportesScreen() {
   );
 }
 
+function csvEscape(v) {
+  const s = String(v ?? '');
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+async function exportarExcel(ventas, rango) {
+  if (ventas.length === 0) { Alert.alert('Sin datos', 'No hay ventas en este periodo para exportar.'); return; }
+  const filas = [
+    ['Fecha', 'Hora', 'Platillos', 'Método de pago', 'Tipo de pedido', 'Total'],
+    ...ventas.map((v) => {
+      const d = new Date(v.fechaISO);
+      return [
+        d.toLocaleDateString('es-GT'),
+        d.toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' }),
+        v.items.map((it) => `${it.cantidad}x ${it.nombre}`).join(' | '),
+        v.metodoPago,
+        v.tipoPedido,
+        v.total.toFixed(2),
+      ];
+    }),
+  ];
+  const csv = filas.map((f) => f.map(csvEscape).join(',')).join('\n');
+  const uri = FileSystem.documentDirectory + `reporte_${rango}_${Date.now()}.csv`;
+  try {
+    await FileSystem.writeAsStringAsync(uri, csv, { encoding: FileSystem.EncodingType.UTF8 });
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(uri, { mimeType: 'text/csv', dialogTitle: 'Guardar reporte (Excel/CSV)' });
+    }
+  } catch (e) {
+    Alert.alert('No se pudo exportar', 'Intenta de nuevo.');
+  }
+}
+
+async function exportarPDF(datos, rango, config) {
+  const { ventas, total, porMetodo, porTipo, topProductos } = datos;
+  if (ventas.length === 0) { Alert.alert('Sin datos', 'No hay ventas en este periodo para exportar.'); return; }
+  const filasProductos = topProductos.map((p, i) => `
+    <tr>
+      <td style="padding:4px;">${i + 1}</td>
+      <td style="padding:4px;">${p.nombre}</td>
+      <td style="padding:4px;text-align:right;">${p.cantidad}</td>
+      <td style="padding:4px;text-align:right;">${money(p.total)}</td>
+    </tr>`).join('');
+  const html = `
+    <html><body style="font-family:Helvetica,Arial,sans-serif; padding:24px; color:#111;">
+      <div style="text-align:center; margin-bottom:8px;"><img src="${WIMPY_LOGO_BASE64}" style="width:100px;"/></div>
+      <h2 style="text-align:center; margin:4px 0;">${config.nombre || 'WIMPY'} — Reporte de ventas (${RANGOS[rango]})</h2>
+      <p style="text-align:center; color:#555; margin-top:0;">Generado el ${new Date().toLocaleString('es-GT')}</p>
+      <h3>Resumen</h3>
+      <table style="width:100%; border-collapse:collapse;">
+        <tr><td style="padding:4px;">Ventas totales</td><td style="padding:4px;text-align:right;font-weight:bold;">${money(total)} (${ventas.length} ventas)</td></tr>
+        <tr><td style="padding:4px;">💵 Efectivo</td><td style="padding:4px;text-align:right;">${money(porMetodo.efectivo)}</td></tr>
+        <tr><td style="padding:4px;">💳 Tarjeta</td><td style="padding:4px;text-align:right;">${money(porMetodo.tarjeta)}</td></tr>
+        <tr><td style="padding:4px;">🏦 Depósito</td><td style="padding:4px;text-align:right;">${money(porMetodo.transferencia)}</td></tr>
+        <tr><td style="padding:4px;">🍽️ Para comer aquí</td><td style="padding:4px;text-align:right;">${money(porTipo.local)}</td></tr>
+        <tr><td style="padding:4px;">🛵 A domicilio</td><td style="padding:4px;text-align:right;">${money(porTipo.domicilio)}</td></tr>
+      </table>
+      <h3>Productos más vendidos</h3>
+      <table style="width:100%; border-collapse:collapse;">
+        <tr style="background:#111;color:#fff;"><td style="padding:4px;">#</td><td style="padding:4px;">Producto</td><td style="padding:4px;text-align:right;">Cant.</td><td style="padding:4px;text-align:right;">Total</td></tr>
+        ${filasProductos}
+      </table>
+    </body></html>`;
+  try {
+    const { uri } = await Print.printToFileAsync({ html });
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Guardar reporte (PDF)' });
+    }
+  } catch (e) {
+    Alert.alert('No se pudo exportar', 'Intenta de nuevo.');
+  }
+}
+
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.paper },
   title: { fontSize: 22, fontWeight: '800', color: colors.ink },
   subtitle: { color: colors.inkSoft, fontSize: 13, marginBottom: 14 },
   rangoRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   rangoBtn: { flex: 1, borderWidth: 1, borderColor: colors.lineStrong, borderRadius: 8, paddingVertical: 8, alignItems: 'center' },
-  rangoBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  rangoBtnActive: { backgroundColor: colors.secondary, borderColor: colors.secondary },
   rangoText: { fontSize: 12.5, color: colors.inkSoft, fontWeight: '600' },
   rangoTextActive: { color: '#fff' },
-  heroCard: { backgroundColor: colors.primary, borderRadius: radius, padding: 18, marginBottom: 6, alignItems: 'center' },
-  heroLabel: { color: '#F5D9C6', fontSize: 12, fontWeight: '600', marginBottom: 4 },
+  exportRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
+  exportBtn: { flex: 1, borderWidth: 1.5, borderColor: colors.primary, borderRadius: 8, paddingVertical: 9, alignItems: 'center' },
+  exportBtnText: { fontSize: 12.5, color: colors.primary, fontWeight: '700' },
+  heroCard: { backgroundColor: colors.secondary, borderRadius: radius, padding: 18, marginBottom: 6, alignItems: 'center' },
+  heroLabel: { color: '#FFE9D2', fontSize: 12, fontWeight: '700', marginBottom: 4 },
   heroValue: { color: '#fff', fontSize: 30, fontWeight: '800' },
-  heroSub: { color: '#F5D9C6', fontSize: 12, marginTop: 4 },
+  heroSub: { color: '#FFE9D2', fontSize: 12, marginTop: 4, fontWeight: '600' },
   sectionLabel: { fontSize: 11, letterSpacing: 0.5, color: colors.inkSoft, fontWeight: '700', marginTop: 18, marginBottom: 8 },
   row3: { flexDirection: 'row', gap: 8 },
   miniCard: { flex: 1, backgroundColor: colors.paperRaised, borderWidth: 1, borderColor: colors.line, borderRadius: radius, padding: 10, alignItems: 'center' },

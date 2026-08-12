@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
-  Modal, Alert, FlatList,
+  Modal, Alert, FlatList, Image,
 } from 'react-native';
 import { useApp } from './AppContext';
 import { guardarPlatillo, eliminarPlatillo } from './firestore';
 import { money } from './format';
 import { colors, radius } from './theme';
 
-const emptyForm = { nombre: '', categoria: '', precio: '', receta: [] };
+const emptyForm = { nombre: '', categoria: '', precio: '', receta: [], imagenUrl: '' };
 
 export default function MenuScreen() {
   const { menu, insumos } = useApp();
@@ -27,7 +27,7 @@ export default function MenuScreen() {
 
   function openEdit(p) {
     setEditId(p.id);
-    setForm({ nombre: p.nombre, categoria: p.categoria || '', precio: String(p.precio), receta: p.receta || [] });
+    setForm({ nombre: p.nombre, categoria: p.categoria || '', precio: String(p.precio), receta: p.receta || [], imagenUrl: p.imagenUrl || '' });
     setFormVisible(true);
   }
 
@@ -41,6 +41,7 @@ export default function MenuScreen() {
       categoria: form.categoria.trim() || 'Otros',
       precio: Number(form.precio),
       receta: form.receta,
+      imagenUrl: form.imagenUrl.trim(),
     });
     setFormVisible(false);
   }
@@ -91,6 +92,11 @@ export default function MenuScreen() {
         ) : (
           menu.map((p) => (
             <View key={p.id} style={styles.item}>
+              {p.imagenUrl ? (
+                <Image source={{ uri: p.imagenUrl }} style={styles.itemThumb} />
+              ) : (
+                <View style={[styles.itemThumb, styles.itemThumbPlaceholder]}><Text>🍽️</Text></View>
+              )}
               <TouchableOpacity style={{ flex: 1 }} onPress={() => openEdit(p)}>
                 <Text style={styles.itemTitle}>{p.nombre}</Text>
                 <Text style={styles.itemSub}>
@@ -119,6 +125,12 @@ export default function MenuScreen() {
 
           <Text style={styles.label}>Precio (Q)</Text>
           <TextInput style={styles.input} value={form.precio} onChangeText={(t) => setForm({ ...form, precio: t })} keyboardType="decimal-pad" placeholder="0.00" />
+
+          <Text style={styles.label}>Foto de referencia (enlace/URL, opcional)</Text>
+          <TextInput style={styles.input} value={form.imagenUrl} onChangeText={(t) => setForm({ ...form, imagenUrl: t })} placeholder="https://..." autoCapitalize="none" />
+          {!!form.imagenUrl && (
+            <Image source={{ uri: form.imagenUrl }} style={{ width: 90, height: 90, borderRadius: 8, marginTop: 8 }} />
+          )}
 
           <Text style={[styles.label, { marginTop: 14 }]}>Receta (insumos que se descuentan al vender)</Text>
           {form.receta.length === 0 ? (
@@ -198,6 +210,8 @@ const styles = StyleSheet.create({
   addBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   empty: { padding: 24, borderWidth: 1, borderColor: colors.lineStrong, borderStyle: 'dashed', borderRadius: radius, alignItems: 'center', marginTop: 10 },
   item: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.paperRaised, borderWidth: 1, borderColor: colors.line, borderRadius: radius, padding: 12, marginBottom: 8 },
+  itemThumb: { width: 44, height: 44, borderRadius: 8, marginRight: 10, backgroundColor: colors.line },
+  itemThumbPlaceholder: { alignItems: 'center', justifyContent: 'center' },
   itemTitle: { fontWeight: '700', fontSize: 14.5, color: colors.ink },
   itemSub: { fontSize: 12, color: colors.inkSoft, marginTop: 2 },
   deleteBtn: { color: colors.danger, fontSize: 12.5, fontWeight: '600' },
@@ -213,7 +227,7 @@ const styles = StyleSheet.create({
   modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 24, marginBottom: 40 },
   btnGhost: { paddingVertical: 10, paddingHorizontal: 14 },
   btnGhostText: { color: colors.inkSoft, fontWeight: '600' },
-  btnPrimary: { backgroundColor: colors.primary, borderRadius: 8, paddingVertical: 10, paddingHorizontal: 18 },
+  btnPrimary: { backgroundColor: colors.secondary, borderRadius: 8, paddingVertical: 10, paddingHorizontal: 18 },
   btnPrimaryText: { color: '#fff', fontWeight: '700' },
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' },
   pickerBox: { width: '88%', backgroundColor: '#fff', borderRadius: 12, padding: 18 },
