@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { listenVentasEnRango } from './firestore';
 import { useApp } from './AppContext';
 import { money } from './format';
@@ -27,15 +27,23 @@ function rangoFechas(rango) {
 }
 
 export default function ReportesScreen() {
-  const { config } = useApp();
+  const { config, menu } = useApp();
   const [rango, setRango] = useState('hoy');
   const [ventas, setVentas] = useState([]);
+  const [verTodosProductos, setVerTodosProductos] = useState(false);
   const { start, end } = useMemo(() => rangoFechas(rango), [rango]);
 
   useEffect(() => {
     const unsub = listenVentasEnRango(start, end, setVentas);
     return unsub;
   }, [rango]);
+
+  // Mapa platilloId -> departamento (categoría), para poder agrupar ventas por departamento
+  const departamentoPorPlatilloId = useMemo(() => {
+    const map = {};
+    menu.forEach((p) => { map[p.id] = p.categoria || 'Sin departamento'; });
+    return map;
+  }, [menu]);
 
   const total = ventas.reduce((s, v) => s + v.total, 0);
   const porMetodo = { efectivo: 0, tarjeta: 0, transferencia: 0 };
@@ -44,7 +52,7 @@ export default function ReportesScreen() {
   const porTipo = { local: 0, domicilio: 0 };
   ventas.forEach((v) => { porTipo[v.tipoPedido || 'local'] += v.total; });
 
-  // Producto más vendidos (por cantidad)
+  // Por platillo (todos, no solo los más vendidos)
   const productoMap = {};
   ventas.forEach((v) => {
     v.items.forEach((it) => {
@@ -53,10 +61,24 @@ export default function ReportesScreen() {
       productoMap[it.nombre].total += it.precio * it.cantidad;
     });
   });
-  const topProductos = Object.entries(productoMap)
+  const todosProductos = Object.entries(productoMap)
     .map(([nombre, d]) => ({ nombre, ...d }))
-    .sort((a, b) => b.cantidad - a.cantidad)
-    .slice(0, 8);
+    .sort((a, b) => b.cantidad - a.cantidad);
+  const productosMostrados = verTodosProductos ? todosProductos : todosProductos.slice(0, 8);
+
+  // Por departamento (categoría)
+  const departamentoMap = {};
+  ventas.forEach((v) => {
+    v.items.forEach((it) => {
+      const depto = departamentoPorPlatilloId[it.platilloId] || 'Sin departamento';
+      if (!departamentoMap[depto]) departamentoMap[depto] = { cantidad: 0, total: 0 };
+      departamentoMap[depto].cantidad += it.cantidad;
+      departamentoMap[depto].total += it.precio * it.cantidad;
+    });
+  });
+  const porDepartamento = Object.entries(departamentoMap)
+    .map(([nombre, d]) => ({ nombre, ...d }))
+    .sort((a, b) => b.total - a.total);
 
   // Ventas por día (para el rango de semana/mes)
   const porDia = {};
@@ -67,6 +89,7 @@ export default function ReportesScreen() {
   });
   const diasOrdenados = Object.entries(porDia);
   const maxDia = Math.max(1, ...diasOrdenados.map(([, v]) => v));
+  const maxDepto = Math.max(1, ...porDepartamento.map((d) => d.total));
 
   const promedioPorVenta = ventas.length ? total / ventas.length : 0;
 
@@ -86,7 +109,7 @@ export default function ReportesScreen() {
       <View style={styles.exportRow}>
         <TouchableOpacity
           style={styles.exportBtn}
-          onPress={() => exportarPDF({ ventas, total, porMetodo, porTipo, topProductos }, rango, config)}
+          onPress={() => exportarPDF({ ventas, total, porMetodo, porTipo, todosProductos, porDepartamento }, rango, config)}
         >
           <Text style={styles.exportBtnText}>📄 Exportar PDF</Text>
         </TouchableOpacity>
@@ -155,13 +178,38 @@ export default function ReportesScreen() {
         </>
       )}
 
-      {/* Top productos */}
-      <Text style={styles.sectionLabel}>PRODUCTOS MÁS VENDIDOS</Text>
+      {/* Por departamento */}
+      <Text style={styles.sectionLabel}>VENTAS POR DEPARTAMENTO</Text>
       <View style={styles.card}>
-        {topProductos.length === 0 ? (
+        {porDepartamento.length === 0 ? (
+          <Text style={styles.hint}>Sin ventas en este periodo. Los departamentos se toman de la "Categoría" que le pusiste a cada platillo en Menú.</Text>
+        ) : (
+          porDepartamento.map((d) => (
+            <View key={d.nombre} style={styles.barRow}>
+              <Text style={[styles.barLabel, { width: 100 }]} numberOfLines={1}>{d.nombre}</Text>
+              <View style={styles.barTrack}>
+                <View style={[styles.barFill, { width: `${(d.total / maxDepto) * 100}%`, backgroundColor: colors.primary }]} />
+              </View>
+              <Text style={styles.barValue}>{money(d.total)}</Text>
+            </View>
+          ))
+        )}
+      </View>
+
+      {/* Por platillo */}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 18, marginBottom: 8 }}>
+        <Text style={[styles.sectionLabel, { marginTop: 0, marginBottom: 0 }]}>VENTAS POR PLATILLO</Text>
+        {todosProductos.length > 8 && (
+          <TouchableOpacity onPress={() => setVerTodosProductos((v) => !v)}>
+            <Text style={styles.verTodosText}>{verTodosProductos ? 'Ver menos' : `Ver todos (${todosProductos.length})`}</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+      <View style={styles.card}>
+        {productosMostrados.length === 0 ? (
           <Text style={styles.hint}>Sin ventas en este periodo.</Text>
         ) : (
-          topProductos.map((p, idx) => (
+          productosMostrados.map((p, idx) => (
             <View key={p.nombre} style={styles.prodRow}>
               <Text style={styles.prodRank}>{idx + 1}</Text>
               <Text style={styles.prodNombre} numberOfLines={1}>{p.nombre}</Text>
@@ -201,22 +249,28 @@ async function exportarExcel(ventas, rango) {
   try {
     await FileSystem.writeAsStringAsync(uri, csv, { encoding: FileSystem.EncodingType.UTF8 });
     if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(uri, { mimeType: 'text/csv', dialogTitle: 'Guardar reporte (Excel/CSV)' });
+      await Sharing.shareAsync(uri, { mimeType: 'text/csv', dialogTitle: 'Guardar reporte (Excel/CSV)', UTI: 'public.comma-separated-values-text' });
     }
   } catch (e) {
-    Alert.alert('No se pudo exportar', 'Intenta de nuevo.');
+    Alert.alert('No se pudo exportar', String(e?.message || e));
   }
 }
 
 async function exportarPDF(datos, rango, config) {
-  const { ventas, total, porMetodo, porTipo, topProductos } = datos;
+  const { ventas, total, porMetodo, porTipo, todosProductos, porDepartamento } = datos;
   if (ventas.length === 0) { Alert.alert('Sin datos', 'No hay ventas en este periodo para exportar.'); return; }
-  const filasProductos = topProductos.map((p, i) => `
+  const filasProductos = todosProductos.map((p, i) => `
     <tr>
       <td style="padding:4px;">${i + 1}</td>
       <td style="padding:4px;">${p.nombre}</td>
       <td style="padding:4px;text-align:right;">${p.cantidad}</td>
       <td style="padding:4px;text-align:right;">${money(p.total)}</td>
+    </tr>`).join('');
+  const filasDepto = porDepartamento.map((d) => `
+    <tr>
+      <td style="padding:4px;">${d.nombre}</td>
+      <td style="padding:4px;text-align:right;">${d.cantidad}</td>
+      <td style="padding:4px;text-align:right;">${money(d.total)}</td>
     </tr>`).join('');
   const html = `
     <html><body style="font-family:Helvetica,Arial,sans-serif; padding:24px; color:#111;">
@@ -232,7 +286,12 @@ async function exportarPDF(datos, rango, config) {
         <tr><td style="padding:4px;">🍽️ Para comer aquí</td><td style="padding:4px;text-align:right;">${money(porTipo.local)}</td></tr>
         <tr><td style="padding:4px;">🛵 A domicilio</td><td style="padding:4px;text-align:right;">${money(porTipo.domicilio)}</td></tr>
       </table>
-      <h3>Productos más vendidos</h3>
+      <h3>Ventas por departamento</h3>
+      <table style="width:100%; border-collapse:collapse;">
+        <tr style="background:#111;color:#fff;"><td style="padding:4px;">Departamento</td><td style="padding:4px;text-align:right;">Cant.</td><td style="padding:4px;text-align:right;">Total</td></tr>
+        ${filasDepto}
+      </table>
+      <h3>Ventas por platillo</h3>
       <table style="width:100%; border-collapse:collapse;">
         <tr style="background:#111;color:#fff;"><td style="padding:4px;">#</td><td style="padding:4px;">Producto</td><td style="padding:4px;text-align:right;">Cant.</td><td style="padding:4px;text-align:right;">Total</td></tr>
         ${filasProductos}
@@ -244,7 +303,7 @@ async function exportarPDF(datos, rango, config) {
       await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Guardar reporte (PDF)' });
     }
   } catch (e) {
-    Alert.alert('No se pudo exportar', 'Intenta de nuevo.');
+    Alert.alert('No se pudo exportar', String(e?.message || e));
   }
 }
 
@@ -265,6 +324,7 @@ const styles = StyleSheet.create({
   heroValue: { color: '#fff', fontSize: 30, fontWeight: '800' },
   heroSub: { color: '#FFE9D2', fontSize: 12, marginTop: 4, fontWeight: '600' },
   sectionLabel: { fontSize: 11, letterSpacing: 0.5, color: colors.inkSoft, fontWeight: '700', marginTop: 18, marginBottom: 8 },
+  verTodosText: { fontSize: 12, color: colors.secondaryDark, fontWeight: '700' },
   row3: { flexDirection: 'row', gap: 8 },
   miniCard: { flex: 1, backgroundColor: colors.paperRaised, borderWidth: 1, borderColor: colors.line, borderRadius: radius, padding: 10, alignItems: 'center' },
   miniIcon: { fontSize: 18, marginBottom: 4 },
