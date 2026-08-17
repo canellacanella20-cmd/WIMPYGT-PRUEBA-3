@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system/legacy';
 import { listenVentasEnRango } from './firestore';
 import { useApp } from './AppContext';
 import { money } from './format';
@@ -109,12 +108,15 @@ export default function ReportesScreen() {
       <View style={styles.exportRow}>
         <TouchableOpacity
           style={styles.exportBtn}
-          onPress={() => exportarPDF({ ventas, total, porMetodo, porTipo, todosProductos, porDepartamento }, rango, config)}
+          onPress={() => guardarReporteTicket({ ventas, total, porMetodo, porTipo, todosProductos, porDepartamento }, rango, config)}
         >
-          <Text style={styles.exportBtnText}>📄 Exportar PDF</Text>
+          <Text style={styles.exportBtnText}>📄 Guardar PDF</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.exportBtn} onPress={() => exportarExcel(ventas, rango)}>
-          <Text style={styles.exportBtnText}>📊 Exportar Excel</Text>
+        <TouchableOpacity
+          style={styles.exportBtn}
+          onPress={() => imprimirReporte({ ventas, total, porMetodo, porTipo, todosProductos, porDepartamento }, rango, config)}
+        >
+          <Text style={styles.exportBtnText}>🖨 Imprimir</Text>
         </TouchableOpacity>
       </View>
 
@@ -223,87 +225,77 @@ export default function ReportesScreen() {
   );
 }
 
-function csvEscape(v) {
-  const s = String(v ?? '');
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+function reporteTicketHtml(datos, rango, config) {
+  const { total, porDepartamento, todosProductos } = datos;
+  const nombreNegocio = (config.nombre || 'WIMPY').toUpperCase();
+  const filasDepto = porDepartamento.map((d) => `
+    <div style="display:flex; justify-content:space-between; font-size:10.5px; margin:4px 0;">
+      <span style="flex:1;">${d.nombre}</span>
+      <span style="width:34px; text-align:right;">${d.cantidad} U</span>
+      <span style="width:60px; text-align:right;">${money(d.total)}</span>
+    </div>`).join('');
+  const filasProductos = todosProductos.map((p) => `
+    <div style="display:flex; justify-content:space-between; font-size:10.5px; margin:4px 0;">
+      <span style="flex:1;">${p.nombre}</span>
+      <span style="width:34px; text-align:right;">${p.cantidad} U</span>
+      <span style="width:60px; text-align:right;">${money(p.total)}</span>
+    </div>`).join('');
+
+  return `
+  <html>
+  <head>
+    <style>
+      @page { size: 57mm auto; margin: 0; }
+      * { box-sizing: border-box; }
+      body { width: 54mm; margin: 0 auto; padding: 6px 5px 14px; font-family: Helvetica, Arial, sans-serif; color: #111; }
+      .center { text-align: center; }
+      .dashed { border-top: 1.5px dashed #111; margin: 8px 0; }
+    </style>
+  </head>
+  <body>
+    <div class="center" style="margin-bottom:6px;">
+      <img src="${WIMPY_LOGO_BASE64}" style="width:100px; height:auto;" />
+    </div>
+    <div class="center" style="font-size:12px; font-weight:800;">${nombreNegocio}</div>
+    <div class="center" style="font-size:10px; font-weight:700; margin-top:2px;">REPORTE DE VENTAS · ${RANGOS[rango].toUpperCase()}</div>
+    <div class="center" style="font-size:9px; color:#555; margin-top:2px;">Generado el ${new Date().toLocaleString('es-GT')}</div>
+
+    <div class="dashed"></div>
+    <div style="font-size:10px; font-weight:800; margin-bottom:4px;">POR DEPARTAMENTO</div>
+    ${filasDepto || '<div style="font-size:10px;color:#777;">Sin ventas</div>'}
+
+    <div class="dashed"></div>
+    <div style="font-size:10px; font-weight:800; margin-bottom:4px;">POR PLATILLO</div>
+    ${filasProductos || '<div style="font-size:10px;color:#777;">Sin ventas</div>'}
+
+    <div class="dashed"></div>
+    <div style="display:flex; justify-content:space-between; font-size:14px; font-weight:800;">
+      <span>TOTAL:</span><span>${money(total)}</span>
+    </div>
+
+    <div class="center" style="font-size:9px; margin-top:14px; letter-spacing:0.5px;">— — — FIN DEL REPORTE — — —</div>
+  </body>
+  </html>`;
 }
 
-async function exportarExcel(ventas, rango) {
-  if (ventas.length === 0) { Alert.alert('Sin datos', 'No hay ventas en este periodo para exportar.'); return; }
-  const filas = [
-    ['Fecha', 'Hora', 'Platillos', 'Método de pago', 'Tipo de pedido', 'Total'],
-    ...ventas.map((v) => {
-      const d = new Date(v.fechaISO);
-      return [
-        d.toLocaleDateString('es-GT'),
-        d.toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' }),
-        v.items.map((it) => `${it.cantidad}x ${it.nombre}`).join(' | '),
-        v.metodoPago,
-        v.tipoPedido,
-        v.total.toFixed(2),
-      ];
-    }),
-  ];
-  const csv = filas.map((f) => f.map(csvEscape).join(',')).join('\n');
-  const uri = FileSystem.documentDirectory + `reporte_${rango}_${Date.now()}.csv`;
+async function guardarReporteTicket(datos, rango, config) {
+  if (datos.ventas.length === 0) { Alert.alert('Sin datos', 'No hay ventas en este periodo para exportar.'); return; }
   try {
-    await FileSystem.writeAsStringAsync(uri, csv, { encoding: FileSystem.EncodingType.UTF8 });
+    const { uri } = await Print.printToFileAsync({ html: reporteTicketHtml(datos, rango, config), width: 162 });
     if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(uri, { mimeType: 'text/csv', dialogTitle: 'Guardar reporte (Excel/CSV)', UTI: 'public.comma-separated-values-text' });
+      await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Guardar reporte' });
     }
   } catch (e) {
     Alert.alert('No se pudo exportar', String(e?.message || e));
   }
 }
 
-async function exportarPDF(datos, rango, config) {
-  const { ventas, total, porMetodo, porTipo, todosProductos, porDepartamento } = datos;
-  if (ventas.length === 0) { Alert.alert('Sin datos', 'No hay ventas en este periodo para exportar.'); return; }
-  const filasProductos = todosProductos.map((p, i) => `
-    <tr>
-      <td style="padding:4px;">${i + 1}</td>
-      <td style="padding:4px;">${p.nombre}</td>
-      <td style="padding:4px;text-align:right;">${p.cantidad}</td>
-      <td style="padding:4px;text-align:right;">${money(p.total)}</td>
-    </tr>`).join('');
-  const filasDepto = porDepartamento.map((d) => `
-    <tr>
-      <td style="padding:4px;">${d.nombre}</td>
-      <td style="padding:4px;text-align:right;">${d.cantidad}</td>
-      <td style="padding:4px;text-align:right;">${money(d.total)}</td>
-    </tr>`).join('');
-  const html = `
-    <html><body style="font-family:Helvetica,Arial,sans-serif; padding:24px; color:#111;">
-      <div style="text-align:center; margin-bottom:8px;"><img src="${WIMPY_LOGO_BASE64}" style="width:100px;"/></div>
-      <h2 style="text-align:center; margin:4px 0;">${config.nombre || 'WIMPY'} — Reporte de ventas (${RANGOS[rango]})</h2>
-      <p style="text-align:center; color:#555; margin-top:0;">Generado el ${new Date().toLocaleString('es-GT')}</p>
-      <h3>Resumen</h3>
-      <table style="width:100%; border-collapse:collapse;">
-        <tr><td style="padding:4px;">Ventas totales</td><td style="padding:4px;text-align:right;font-weight:bold;">${money(total)} (${ventas.length} ventas)</td></tr>
-        <tr><td style="padding:4px;">💵 Efectivo</td><td style="padding:4px;text-align:right;">${money(porMetodo.efectivo)}</td></tr>
-        <tr><td style="padding:4px;">💳 Tarjeta</td><td style="padding:4px;text-align:right;">${money(porMetodo.tarjeta)}</td></tr>
-        <tr><td style="padding:4px;">🏦 Depósito</td><td style="padding:4px;text-align:right;">${money(porMetodo.transferencia)}</td></tr>
-        <tr><td style="padding:4px;">🍽️ Para comer aquí</td><td style="padding:4px;text-align:right;">${money(porTipo.local)}</td></tr>
-        <tr><td style="padding:4px;">🛵 A domicilio</td><td style="padding:4px;text-align:right;">${money(porTipo.domicilio)}</td></tr>
-      </table>
-      <h3>Ventas por departamento</h3>
-      <table style="width:100%; border-collapse:collapse;">
-        <tr style="background:#111;color:#fff;"><td style="padding:4px;">Departamento</td><td style="padding:4px;text-align:right;">Cant.</td><td style="padding:4px;text-align:right;">Total</td></tr>
-        ${filasDepto}
-      </table>
-      <h3>Ventas por platillo</h3>
-      <table style="width:100%; border-collapse:collapse;">
-        <tr style="background:#111;color:#fff;"><td style="padding:4px;">#</td><td style="padding:4px;">Producto</td><td style="padding:4px;text-align:right;">Cant.</td><td style="padding:4px;text-align:right;">Total</td></tr>
-        ${filasProductos}
-      </table>
-    </body></html>`;
+async function imprimirReporte(datos, rango, config) {
+  if (datos.ventas.length === 0) { Alert.alert('Sin datos', 'No hay ventas en este periodo para imprimir.'); return; }
   try {
-    const { uri } = await Print.printToFileAsync({ html });
-    if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Guardar reporte (PDF)' });
-    }
+    await Print.printAsync({ html: reporteTicketHtml(datos, rango, config), width: 162 });
   } catch (e) {
-    Alert.alert('No se pudo exportar', String(e?.message || e));
+    Alert.alert('No se pudo imprimir', String(e?.message || e));
   }
 }
 
