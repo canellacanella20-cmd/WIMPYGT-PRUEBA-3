@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { listenVentasEnRango } from './firestore';
+import { listenVentasEnRango, listenMovimientosEnRango } from './firestore';
 import { useApp } from './AppContext';
 import { money } from './format';
 import { colors, radius } from './theme';
@@ -29,12 +29,14 @@ export default function ReportesScreen() {
   const { config, menu } = useApp();
   const [rango, setRango] = useState('hoy');
   const [ventas, setVentas] = useState([]);
+  const [movimientos, setMovimientos] = useState([]);
   const [verTodosProductos, setVerTodosProductos] = useState(false);
   const { start, end } = useMemo(() => rangoFechas(rango), [rango]);
 
   useEffect(() => {
-    const unsub = listenVentasEnRango(start, end, setVentas);
-    return unsub;
+    const unsubV = listenVentasEnRango(start, end, setVentas);
+    const unsubM = listenMovimientosEnRango(start, end, setMovimientos);
+    return () => { unsubV(); unsubM(); };
   }, [rango]);
 
   // Mapa platilloId -> departamento (categoría), para poder agrupar ventas por departamento
@@ -50,6 +52,10 @@ export default function ReportesScreen() {
 
   const porTipo = { local: 0, domicilio: 0 };
   ventas.forEach((v) => { porTipo[v.tipoPedido || 'local'] += v.total; });
+
+  const totalIngresos = movimientos.filter((m) => m.tipo === 'ingreso').reduce((s, m) => s + m.monto, 0);
+  const totalEgresos = movimientos.filter((m) => m.tipo === 'egreso').reduce((s, m) => s + m.monto, 0);
+  const movimientosOrdenados = [...movimientos].sort((a, b) => new Date(b.fechaISO) - new Date(a.fechaISO));
 
   // Por platillo (todos, no solo los más vendidos)
   const productoMap = {};
@@ -108,13 +114,13 @@ export default function ReportesScreen() {
       <View style={styles.exportRow}>
         <TouchableOpacity
           style={styles.exportBtn}
-          onPress={() => guardarReporteTicket({ ventas, total, porMetodo, porTipo, todosProductos, porDepartamento }, rango, config)}
+          onPress={() => guardarReporteTicket({ ventas, total, porMetodo, porTipo, todosProductos, porDepartamento, totalIngresos, totalEgresos, movimientos: movimientosOrdenados }, rango, config)}
         >
           <Text style={styles.exportBtnText}>📄 Guardar PDF</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.exportBtn}
-          onPress={() => imprimirReporte({ ventas, total, porMetodo, porTipo, todosProductos, porDepartamento }, rango, config)}
+          onPress={() => imprimirReporte({ ventas, total, porMetodo, porTipo, todosProductos, porDepartamento, totalIngresos, totalEgresos, movimientos: movimientosOrdenados }, rango, config)}
         >
           <Text style={styles.exportBtnText}>🖨 Imprimir</Text>
         </TouchableOpacity>
@@ -161,6 +167,38 @@ export default function ReportesScreen() {
           <Text style={styles.miniLabel}>A domicilio</Text>
         </View>
       </View>
+
+      {/* Ingresos y egresos de caja */}
+      <Text style={styles.sectionLabel}>INGRESOS Y EGRESOS DE CAJA</Text>
+      <View style={styles.row3}>
+        <View style={styles.miniCard}>
+          <Text style={styles.miniIcon}>💰</Text>
+          <Text style={[styles.miniValue, { color: colors.success }]}>+{money(totalIngresos)}</Text>
+          <Text style={styles.miniLabel}>Ingresos</Text>
+        </View>
+        <View style={styles.miniCard}>
+          <Text style={styles.miniIcon}>💸</Text>
+          <Text style={[styles.miniValue, { color: colors.danger }]}>−{money(totalEgresos)}</Text>
+          <Text style={styles.miniLabel}>Egresos</Text>
+        </View>
+      </View>
+      {movimientos.length === 0 ? (
+        <Text style={[styles.hint, { marginTop: 8 }]}>Sin ingresos ni pagos registrados en este periodo (se agregan desde la pestaña Caja).</Text>
+      ) : (
+        <View style={[styles.card, { marginTop: 10 }]}>
+          {movimientosOrdenados.map((m) => (
+            <View key={m.id} style={styles.movRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.movConcepto}>{m.tipo === 'ingreso' ? '💰' : '💸'} {m.concepto}</Text>
+                <Text style={styles.movFecha}>{new Date(m.fechaISO).toLocaleString('es-GT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</Text>
+              </View>
+              <Text style={[styles.movMonto, { color: m.tipo === 'ingreso' ? colors.success : colors.danger }]}>
+                {m.tipo === 'ingreso' ? '+' : '−'}{money(m.monto)}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
 
       {/* Ventas por día (solo si hay más de un día) */}
       {diasOrdenados.length > 1 && (
@@ -226,7 +264,7 @@ export default function ReportesScreen() {
 }
 
 function reporteTicketHtml(datos, rango, config) {
-  const { total, porDepartamento, todosProductos } = datos;
+  const { total, porDepartamento, todosProductos, totalIngresos, totalEgresos, movimientos } = datos;
   const nombreNegocio = (config.nombre || 'WIMPY').toUpperCase();
   const filasDepto = porDepartamento.map((d) => `
     <div style="display:flex; justify-content:space-between; font-size:10.5px; margin:4px 0;">
@@ -239,6 +277,11 @@ function reporteTicketHtml(datos, rango, config) {
       <span style="flex:1;">${p.nombre}</span>
       <span style="width:34px; text-align:right;">${p.cantidad} U</span>
       <span style="width:60px; text-align:right;">${money(p.total)}</span>
+    </div>`).join('');
+  const filasMovimientos = movimientos.map((m) => `
+    <div style="display:flex; justify-content:space-between; font-size:10.5px; margin:4px 0;">
+      <span style="flex:1;">${m.tipo === 'ingreso' ? '💰' : '💸'} ${m.concepto}</span>
+      <span style="width:60px; text-align:right;">${m.tipo === 'ingreso' ? '+' : '−'}${money(m.monto)}</span>
     </div>`).join('');
 
   return `
@@ -269,8 +312,14 @@ function reporteTicketHtml(datos, rango, config) {
     ${filasProductos || '<div style="font-size:10px;color:#777;">Sin ventas</div>'}
 
     <div class="dashed"></div>
+    <div style="font-size:10px; font-weight:800; margin-bottom:4px;">INGRESOS Y EGRESOS</div>
+    <div style="display:flex; justify-content:space-between; font-size:10.5px; margin:4px 0;"><span>Ingresos</span><span>+${money(totalIngresos)}</span></div>
+    <div style="display:flex; justify-content:space-between; font-size:10.5px; margin:4px 0;"><span>Egresos</span><span>−${money(totalEgresos)}</span></div>
+    ${filasMovimientos ? `<div style="margin-top:4px;">${filasMovimientos}</div>` : ''}
+
+    <div class="dashed"></div>
     <div style="display:flex; justify-content:space-between; font-size:14px; font-weight:800;">
-      <span>TOTAL:</span><span>${money(total)}</span>
+      <span>TOTAL VENTAS:</span><span>${money(total)}</span>
     </div>
 
     <div class="center" style="font-size:9px; margin-top:14px; letter-spacing:0.5px;">— — — FIN DEL REPORTE — — —</div>
@@ -334,4 +383,8 @@ const styles = StyleSheet.create({
   prodNombre: { flex: 1, fontSize: 13, color: colors.ink },
   prodCantidad: { fontSize: 12, color: colors.secondaryDark, fontWeight: '700' },
   prodTotal: { width: 70, textAlign: 'right', fontSize: 12.5, color: colors.ink, fontWeight: '600' },
+  movRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.line, gap: 8 },
+  movConcepto: { fontSize: 13, color: colors.ink },
+  movFecha: { fontSize: 11, color: colors.inkSoft, marginTop: 2 },
+  movMonto: { fontWeight: '700', fontSize: 13 },
 });
