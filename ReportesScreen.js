@@ -127,10 +127,17 @@ export default function ReportesScreen() {
       </View>
 
       {/* Totales grandes */}
-      <View style={styles.heroCard}>
-        <Text style={styles.heroLabel}>Ventas totales</Text>
-        <Text style={styles.heroValue}>{money(total)}</Text>
-        <Text style={styles.heroSub}>{ventas.length} venta(s) · promedio {money(promedioPorVenta)}</Text>
+      <View style={styles.row3}>
+        <View style={[styles.heroCard, { flex: 1 }]}>
+          <Text style={styles.heroLabel}>Total Ventas</Text>
+          <Text style={styles.heroValue}>{money(total)}</Text>
+          <Text style={styles.heroSub}>{ventas.length} venta(s)</Text>
+        </View>
+        <View style={[styles.heroCard, { flex: 1, backgroundColor: colors.primary }]}>
+          <Text style={styles.heroLabel}>Total de caja chica</Text>
+          <Text style={styles.heroValue}>{money(totalIngresos - totalEgresos)}</Text>
+          <Text style={styles.heroSub}>+{money(totalIngresos)} · −{money(totalEgresos)}</Text>
+        </View>
       </View>
 
       {/* Por método de pago */}
@@ -321,6 +328,9 @@ function reporteTicketHtml(datos, rango, config) {
     <div style="display:flex; justify-content:space-between; font-size:14px; font-weight:800;">
       <span>TOTAL VENTAS:</span><span>${money(total)}</span>
     </div>
+    <div style="display:flex; justify-content:space-between; font-size:12px; font-weight:800; margin-top:4px;">
+      <span>TOTAL CAJA CHICA:</span><span>${money(totalIngresos - totalEgresos)}</span>
+    </div>
 
     <div class="center" style="font-size:9px; margin-top:14px; letter-spacing:0.5px;">— — — FIN DEL REPORTE — — —</div>
   </body>
@@ -360,10 +370,10 @@ const styles = StyleSheet.create({
   exportRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   exportBtn: { flex: 1, borderWidth: 1.5, borderColor: colors.primary, borderRadius: 8, paddingVertical: 9, alignItems: 'center' },
   exportBtnText: { fontSize: 12.5, color: colors.primary, fontWeight: '700' },
-  heroCard: { backgroundColor: colors.secondary, borderRadius: radius, padding: 18, marginBottom: 6, alignItems: 'center' },
-  heroLabel: { color: '#FFE9D2', fontSize: 12, fontWeight: '700', marginBottom: 4 },
-  heroValue: { color: '#fff', fontSize: 30, fontWeight: '800' },
-  heroSub: { color: '#FFE9D2', fontSize: 12, marginTop: 4, fontWeight: '600' },
+  heroCard: { backgroundColor: colors.secondary, borderRadius: radius, padding: 14, marginBottom: 6, alignItems: 'center' },
+  heroLabel: { color: '#FFE9D2', fontSize: 11, fontWeight: '700', marginBottom: 4, textAlign: 'center' },
+  heroValue: { color: '#fff', fontSize: 20, fontWeight: '800' },
+  heroSub: { color: '#FFE9D2', fontSize: 10.5, marginTop: 4, fontWeight: '600', textAlign: 'center' },
   sectionLabel: { fontSize: 11, letterSpacing: 0.5, color: colors.inkSoft, fontWeight: '700', marginTop: 18, marginBottom: 8 },
   verTodosText: { fontSize: 12, color: colors.secondaryDark, fontWeight: '700' },
   row3: { flexDirection: 'row', gap: 8 },
