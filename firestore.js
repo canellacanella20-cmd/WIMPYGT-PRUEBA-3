@@ -117,6 +117,67 @@ export async function cobrarVenta(ticket, menu) {
   return { id: ventaRef.id, stockBajo };
 }
 
+// ───────────────────────── PROVEEDORES ─────────────────────────
+// Documento: { nombre, contacto, telefono }
+
+export function listenProveedores(callback) {
+  return onSnapshot(collection(db, 'proveedores'), (snap) => {
+    const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    callback(items);
+  });
+}
+
+export async function guardarProveedor(id, data) {
+  if (id) {
+    await setDoc(doc(db, 'proveedores', id), data, { merge: true });
+    return id;
+  }
+  const ref = await addDoc(collection(db, 'proveedores'), data);
+  return ref.id;
+}
+
+export async function eliminarProveedor(id) {
+  await deleteDoc(doc(db, 'proveedores', id));
+}
+
+// ───────────────────────── COMPRAS ─────────────────────────
+// Documento: { proveedorNombre, items: [{insumoId, nombre, cantidad, costoUnitario}], total, fechaISO, notas }
+// Al registrar una compra, se AUMENTA el stock de los insumos comprados.
+
+export function listenComprasEnRango(start, end, callback) {
+  const q = query(
+    collection(db, 'compras'),
+    where('fechaISO', '>=', start.toISOString()),
+    where('fechaISO', '<=', end.toISOString()),
+    orderBy('fechaISO', 'desc')
+  );
+  return onSnapshot(q, (snap) => {
+    const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    callback(items);
+  });
+}
+
+export async function registrarCompra(compra) {
+  const compraRef = await addDoc(collection(db, 'compras'), compra);
+
+  await runTransaction(db, async (tx) => {
+    for (const item of compra.items) {
+      const ref = doc(db, 'insumos', item.insumoId);
+      const snap = await tx.get(ref);
+      if (!snap.exists()) continue;
+      const insumo = snap.data();
+      const nuevoStock = round2((insumo.stock || 0) + item.cantidad);
+      tx.update(ref, { stock: nuevoStock });
+    }
+  });
+
+  return compraRef.id;
+}
+
+export async function eliminarCompra(id) {
+  await deleteDoc(doc(db, 'compras', id));
+}
+
 // ───────────────────────── MOVIMIENTOS DE CAJA ─────────────────────────
 // Documento: { tipo: 'ingreso'|'egreso', monto, concepto, fechaISO }
 
