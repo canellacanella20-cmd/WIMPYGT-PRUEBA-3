@@ -201,7 +201,7 @@ export default function ComprasScreen() {
               )}
               ListEmptyComponent={<Text style={styles.hint}>Todavía no tienes proveedores.</Text>}
             />
-            <TouchableOpacity style={styles.linkBtn} onPress={() => setNuevoProveedorVisible(true)}>
+            <TouchableOpacity style={styles.linkBtn} onPress={() => { setProveedorPickerVisible(false); setNuevoProveedorVisible(true); }}>
               <Text style={styles.linkBtnText}>+ Nuevo proveedor</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.btnGhost, { marginTop: 10 }]} onPress={() => setProveedorPickerVisible(false)}>
@@ -223,7 +223,7 @@ export default function ComprasScreen() {
             <Text style={styles.label}>Teléfono (opcional)</Text>
             <TextInput style={styles.input} value={formProveedor.telefono} onChangeText={(t) => setFormProveedor({ ...formProveedor, telefono: t })} keyboardType="phone-pad" />
             <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.btnGhost} onPress={() => setNuevoProveedorVisible(false)}>
+              <TouchableOpacity style={styles.btnGhost} onPress={() => { setNuevoProveedorVisible(false); setProveedorPickerVisible(true); }}>
                 <Text style={styles.btnGhostText}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.btnPrimary} onPress={guardarNuevoProveedor}>
