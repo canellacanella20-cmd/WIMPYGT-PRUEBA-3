@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { listenVentasEnRango, listenMovimientosEnRango } from './firestore';
+import { listenVentasEnRango, listenMovimientosEnRango, listenCierres } from './firestore';
 import { useApp } from './AppContext';
 import { money } from './format';
 import { colors, radius } from './theme';
@@ -30,6 +30,7 @@ export default function ReportesScreen() {
   const [rango, setRango] = useState('hoy');
   const [ventas, setVentas] = useState([]);
   const [movimientos, setMovimientos] = useState([]);
+  const [cierres, setCierres] = useState([]);
   const [verTodosProductos, setVerTodosProductos] = useState(false);
   const { start, end } = useMemo(() => rangoFechas(rango), [rango]);
 
@@ -38,6 +39,11 @@ export default function ReportesScreen() {
     const unsubM = listenMovimientosEnRango(start, end, setMovimientos);
     return () => { unsubV(); unsubM(); };
   }, [rango]);
+
+  useEffect(() => {
+    const unsub = listenCierres(setCierres);
+    return unsub;
+  }, []);
 
   // Mapa platilloId -> departamento (categoría), para poder agrupar ventas por departamento
   const departamentoPorPlatilloId = useMemo(() => {
@@ -56,6 +62,25 @@ export default function ReportesScreen() {
   const totalIngresos = movimientos.filter((m) => m.tipo === 'ingreso').reduce((s, m) => s + m.monto, 0);
   const totalEgresos = movimientos.filter((m) => m.tipo === 'egreso').reduce((s, m) => s + m.monto, 0);
   const movimientosOrdenados = [...movimientos].sort((a, b) => new Date(b.fechaISO) - new Date(a.fechaISO));
+
+  // Efectivo que debería haber en caja: igual que en la pantalla Caja, solo
+  // cuenta lo que pasó DESDE el último cierre dentro de este mismo rango.
+  const cierresEnRango = cierres.filter((c) => {
+    const f = new Date(c.fechaRegistro);
+    return f >= start && f <= end;
+  });
+  const ultimoCierre = cierresEnRango.length
+    ? cierresEnRango.reduce((a, b) => (new Date(a.fechaRegistro) > new Date(b.fechaRegistro) ? a : b))
+    : null;
+  const puntoInicio = ultimoCierre ? new Date(ultimoCierre.fechaRegistro) : start;
+  const ventasDesdeCierre = ventas.filter((v) => new Date(v.fechaISO) > puntoInicio);
+  const movimientosDesdeCierre = movimientos.filter((m) => new Date(m.fechaISO) > puntoInicio);
+  const efectivoVentasDesdeCierre = ventasDesdeCierre
+    .filter((v) => (v.metodoPago || 'efectivo') === 'efectivo')
+    .reduce((s, v) => s + v.total, 0);
+  const ingresosDesdeCierre = movimientosDesdeCierre.filter((m) => m.tipo === 'ingreso').reduce((s, m) => s + m.monto, 0);
+  const egresosDesdeCierre = movimientosDesdeCierre.filter((m) => m.tipo === 'egreso').reduce((s, m) => s + m.monto, 0);
+  const efectivoEnCaja = efectivoVentasDesdeCierre + ingresosDesdeCierre - egresosDesdeCierre;
 
   // Por platillo (todos, no solo los más vendidos)
   const productoMap = {};
@@ -114,13 +139,13 @@ export default function ReportesScreen() {
       <View style={styles.exportRow}>
         <TouchableOpacity
           style={styles.exportBtn}
-          onPress={() => guardarReporteTicket({ ventas, total, porMetodo, porTipo, todosProductos, porDepartamento, totalIngresos, totalEgresos, movimientos: movimientosOrdenados }, rango, config)}
+          onPress={() => guardarReporteTicket({ ventas, total, porMetodo, porTipo, todosProductos, porDepartamento, totalIngresos, totalEgresos, movimientos: movimientosOrdenados, efectivoEnCaja }, rango, config)}
         >
           <Text style={styles.exportBtnText}>📄 Guardar PDF</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.exportBtn}
-          onPress={() => imprimirReporte({ ventas, total, porMetodo, porTipo, todosProductos, porDepartamento, totalIngresos, totalEgresos, movimientos: movimientosOrdenados }, rango, config)}
+          onPress={() => imprimirReporte({ ventas, total, porMetodo, porTipo, todosProductos, porDepartamento, totalIngresos, totalEgresos, movimientos: movimientosOrdenados, efectivoEnCaja }, rango, config)}
         >
           <Text style={styles.exportBtnText}>🖨 Imprimir</Text>
         </TouchableOpacity>
@@ -134,9 +159,9 @@ export default function ReportesScreen() {
           <Text style={styles.heroSub}>{ventas.length} venta(s)</Text>
         </View>
         <View style={[styles.heroCard, { flex: 1, backgroundColor: colors.primary }]}>
-          <Text style={styles.heroLabel}>Total de caja chica</Text>
-          <Text style={styles.heroValue}>{money(totalIngresos - totalEgresos)}</Text>
-          <Text style={styles.heroSub}>+{money(totalIngresos)} · −{money(totalEgresos)}</Text>
+          <Text style={styles.heroLabel}>Efectivo en caja</Text>
+          <Text style={styles.heroValue}>{money(efectivoEnCaja)}</Text>
+          <Text style={styles.heroSub}>{ultimoCierre ? 'Desde tu último cierre' : 'Debería haber (sin cierres hoy)'}</Text>
         </View>
       </View>
 
@@ -271,7 +296,7 @@ export default function ReportesScreen() {
 }
 
 function reporteTicketHtml(datos, rango, config) {
-  const { total, porDepartamento, todosProductos, totalIngresos, totalEgresos, movimientos } = datos;
+  const { total, porDepartamento, todosProductos, totalIngresos, totalEgresos, movimientos, efectivoEnCaja } = datos;
   const nombreNegocio = (config.nombre || 'WIMPY').toUpperCase();
   const filasDepto = porDepartamento.map((d) => `
     <div style="display:flex; justify-content:space-between; font-size:10.5px; margin:4px 0;">
@@ -329,7 +354,7 @@ function reporteTicketHtml(datos, rango, config) {
       <span>TOTAL VENTAS:</span><span>${money(total)}</span>
     </div>
     <div style="display:flex; justify-content:space-between; font-size:12px; font-weight:800; margin-top:4px;">
-      <span>TOTAL CAJA CHICA:</span><span>${money(totalIngresos - totalEgresos)}</span>
+      <span>EFECTIVO EN CAJA:</span><span>${money(efectivoEnCaja)}</span>
     </div>
 
     <div class="center" style="font-size:9px; margin-top:14px; letter-spacing:0.5px;">— — — FIN DEL REPORTE — — —</div>
